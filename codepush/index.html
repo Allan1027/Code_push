@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodePush — Code to GitHub</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>&#128229; CodePush</h1>
+    <p>Upload code &rarr; Ollama generates README &rarr; Review &rarr; Publish to GitHub</p>
+  </div>
+
+  <!-- Token expiry banner -->
+  <div id="token-banner" style="display:none"></div>
+
+  <!-- ── Settings ─────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header" onclick="toggleCard('settings')">
+      <span class="card-title">&#9881;&#65039; Settings</span>
+      <span class="card-arrow" id="settings-arrow">&#9650;</span>
+    </div>
+    <div class="card-body" id="settings-body">
+      <div class="row">
+        <div class="form-group">
+          <label>Ollama URL</label>
+          <input type="url" id="ollama-url" placeholder="http://localhost:11434" />
+        </div>
+        <div class="form-group">
+          <label>Ollama Model</label>
+          <select id="ollama-model"><option value="">— select model —</option></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>GitHub Token <span style="font-weight:400;color:#484f58">(stored locally in your browser, never sent anywhere except GitHub)</span></label>
+        <input type="password" id="github-token" placeholder="ghp_…" autocomplete="off" />
+        <p class="hint">Generate at GitHub → Settings → Developer settings → Personal access tokens. Needs <strong>repo</strong> scope.</p>
+      </div>
+      <div class="form-group">
+        <label>Token Created On <span style="font-weight:400;color:#484f58">(tracks 90-day expiry)</span></label>
+        <input type="date" id="token-date" />
+      </div>
+      <button class="btn-secondary" onclick="saveSettings()">Save Settings</button>
+      &nbsp;
+      <button class="btn-secondary" onclick="loadOllamaModels()">&#8635; Reload Models</button>
+    </div>
+  </div>
+
+  <!-- ── Upload ───────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title" style="margin-bottom:14px;">&#128193; Upload Files</div>
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <div class="dz-icon">&#128196;</div>
+      <div class="dz-label"><strong>Click to browse</strong> or drag &amp; drop</div>
+      <div class="dz-hint">Select multiple files &nbsp;&#8212;&nbsp; or drop a single .zip archive</div>
+    </div>
+    <input type="file" id="file-input" multiple style="display:none" />
+    <div class="file-list" id="file-list"></div>
+  </div>
+
+  <!-- ── Repository Config ────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title" style="margin-bottom:14px;">&#128279; Repository</div>
+
+    <!-- Mode toggle -->
+    <div class="mode-group">
+      <button class="mode-btn active" id="mode-new"    onclick="setMode('new')">&#43; New Repository</button>
+      <button class="mode-btn"        id="mode-update" onclick="setMode('update')">&#8593; Update Existing</button>
+    </div>
+
+    <!-- New repo fields -->
+    <div id="new-repo-fields">
+      <div class="row">
+        <div class="form-group">
+          <label>Repository Name</label>
+          <input type="text" id="repo-name" placeholder="my-awesome-project" />
+        </div>
+        <div class="form-group">
+          <label>Visibility</label>
+          <div class="vis-group">
+            <button class="vis-btn active" id="btn-public"  onclick="setVisibility('public')">&#127760; Public</button>
+            <button class="vis-btn"        id="btn-private" onclick="setVisibility('private')">&#128274; Private</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Update existing repo fields -->
+    <div id="update-repo-fields" style="display:none">
+      <div class="form-group">
+        <label>Select Repository to Update</label>
+        <div style="display:flex; gap:8px;">
+          <select id="existing-repo-select" style="flex:1"><option value="">— click Load to fetch your repos —</option></select>
+          <button class="btn-secondary" onclick="loadExistingRepoDropdown()" style="white-space:nowrap;">&#8635; Load</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Commit Message <span style="font-weight:400;color:#484f58">(optional)</span></label>
+        <input type="text" id="commit-msg" placeholder="Update via CodePush" />
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 1: Generate README ──────────────────────────────────────── -->
+  <button class="btn-primary" id="step1-btn" onclick="step1()">
+    <span class="step-badge">1</span> Generate README with Ollama
+  </button>
+
+  <!-- ── README Preview ───────────────────────────────────────────────── -->
+  <div class="preview-card" id="preview-card" style="display:none;">
+    <div class="preview-header">
+      <span class="preview-title">&#128203; README Preview — Edit freely before pushing</span>
+      <span class="preview-hint" id="preview-chars"></span>
+    </div>
+    <textarea id="readme-editor" rows="22" placeholder="README will appear here…" oninput="updateCharCount()"></textarea>
+    <div class="preview-actions">
+      <button class="btn-secondary" onclick="step1()" title="Regenerate from Ollama">&#8635; Regenerate</button>
+      <button class="btn-push" id="step2-btn" onclick="step2()">
+        <span class="step-badge blue">2</span> Push to GitHub
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Log ──────────────────────────────────────────────────────────── -->
+  <div class="card" id="log-card" style="display:none;">
+    <div class="card-title" style="margin-bottom:12px;">&#128203; Progress</div>
+    <div class="log-wrap" id="log"></div>
+  </div>
+
+  <!-- ── Result ───────────────────────────────────────────────────────── -->
+  <div id="result-area"></div>
+
+  <!-- ── My Repositories ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header" onclick="toggleCard('repos')">
+      <span class="card-title">&#128218; My Repositories</span>
+      <span class="card-arrow" id="repos-arrow">&#9650;</span>
+    </div>
+    <div class="card-body" id="repos-body">
+      <div style="margin-bottom:12px;">
+        <button class="btn-secondary" onclick="loadRepos()">&#8635; Load Repositories</button>
+      </div>
+      <div id="repo-list"><p class="repo-empty">Click "Load Repositories" to view your GitHub repos.</p></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
